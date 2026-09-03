@@ -13,7 +13,7 @@ except ImportError:
 DB_FILE = os.getenv("TURSO_DATABASE_URL") or os.getenv("DATABASE_PATH", "acessos.db")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
 
-def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
+def get_connection(db_path: Optional[str] = None):
     path = db_path or DB_FILE
     token = TURSO_AUTH_TOKEN
     
@@ -21,8 +21,29 @@ def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
         conn = libsql.connect(database=path, auth_token=token)
     else:
         conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
     return conn
+
+def _row_to_dict(cursor, row) -> Optional[Dict[str, Any]]:
+    """Converte uma linha de resultado em dicionário, compatível com sqlite3 e libsql."""
+    if row is None:
+        return None
+    if isinstance(row, sqlite3.Row):
+        return dict(row)
+    if isinstance(row, dict):
+        return row
+    colnames = [col[0] for col in cursor.description]
+    return dict(zip(colnames, row))
+
+def _fetchall_dicts(cursor) -> List[Dict[str, Any]]:
+    """Converte todas as linhas de resultado em uma lista de dicionários."""
+    rows = cursor.fetchall()
+    if not rows:
+        return []
+    if isinstance(rows[0], sqlite3.Row):
+        return [dict(r) for r in rows]
+    colnames = [col[0] for col in cursor.description]
+    return [dict(zip(colnames, r)) for r in rows]
 
 def init_db(db_path: Optional[str] = None) -> None:
     """Inicializa as tabelas acessos e requisicoes_background no SQLite com suporte a migração."""
@@ -45,7 +66,8 @@ def init_db(db_path: Optional[str] = None) -> None:
         
         # Garante a adição de novas colunas em bancos existentes
         cursor.execute("PRAGMA table_info(acessos)")
-        columns = [row["name"] for row in cursor.fetchall()]
+        rows = _fetchall_dicts(cursor)
+        columns = [row["name"] for row in rows]
         
         if "status_analise" not in columns:
             cursor.execute("ALTER TABLE acessos ADD COLUMN status_analise TEXT DEFAULT 'concluido'")
@@ -88,7 +110,8 @@ def salvar_acesso(url: str, data_hora_acesso: str, explicacao: str, db_path: Opt
             (acesso_id,)
         )
         row = cursor.fetchone()
-        return dict(row)
+        res = _row_to_dict(cursor, row)
+        return res or {}
 
 def atualizar_status_acesso(
     acesso_id: int, 
@@ -146,7 +169,8 @@ def listar_acessos(limit: int = 100, offset: int = 0, busca: Optional[str] = Non
                 "SELECT COUNT(*) as count FROM acessos WHERE url LIKE ? OR explicacao LIKE ?",
                 (termo, termo)
             )
-            total = cursor.fetchone()["count"]
+            total_row = _row_to_dict(cursor, cursor.fetchone())
+            total = total_row["count"] if total_row else 0
             
             cursor.execute(
                 """
@@ -160,7 +184,8 @@ def listar_acessos(limit: int = 100, offset: int = 0, busca: Optional[str] = Non
             )
         else:
             cursor.execute("SELECT COUNT(*) as count FROM acessos")
-            total = cursor.fetchone()["count"]
+            total_row = _row_to_dict(cursor, cursor.fetchone())
+            total = total_row["count"] if total_row else 0
             
             cursor.execute(
                 """
@@ -172,8 +197,7 @@ def listar_acessos(limit: int = 100, offset: int = 0, busca: Optional[str] = Non
                 (limit, offset)
             )
             
-        rows = cursor.fetchall()
-        items = [dict(row) for row in rows]
+        items = _fetchall_dicts(cursor)
         return {
             "total": total,
             "limit": limit,
@@ -193,9 +217,7 @@ def obter_acesso_por_id(acesso_id: int, db_path: Optional[str] = None) -> Option
             (acesso_id,)
         )
         row = cursor.fetchone()
-        if row:
-            return dict(row)
-        return None
+        return _row_to_dict(cursor, row)
 
 def obter_requisicoes_background(acesso_id: int, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
     """Obtém todas as requisições em segundo plano gravadas para um determinado acesso."""
@@ -210,8 +232,7 @@ def obter_requisicoes_background(acesso_id: int, db_path: Optional[str] = None) 
             """,
             (acesso_id,)
         )
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
+        return _fetchall_dicts(cursor)
 
 def limpar_todos_dados(db_path: Optional[str] = None) -> Dict[str, int]:
     """Exclui todos os registros das tabelas acessos e requisicoes_background."""
