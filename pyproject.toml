@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.141.1",
     "httpx>=0.28.1",
-    "libsql-experimental>=0.0.34",
+    "libsql>=0.1.9",
     "playwright>=1.62.0",
     "pydantic>=2.13.5",
     "pytest>=9.1.1",

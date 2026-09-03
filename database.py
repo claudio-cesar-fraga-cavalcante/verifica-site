@@ -3,9 +3,12 @@ import sqlite3
 from typing import List, Dict, Any, Optional
 
 try:
-    import libsql_experimental as libsql
+    import libsql
 except ImportError:
-    libsql = None
+    try:
+        import libsql_experimental as libsql
+    except ImportError:
+        libsql = None
 
 DB_FILE = os.getenv("TURSO_DATABASE_URL") or os.getenv("DATABASE_PATH", "acessos.db")
 TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
@@ -15,7 +18,7 @@ def get_connection(db_path: Optional[str] = None) -> sqlite3.Connection:
     token = TURSO_AUTH_TOKEN
     
     if (path.startswith("libsql://") or path.startswith("https://") or token) and libsql:
-        conn = libsql.connect(path, auth_token=token)
+        conn = libsql.connect(database=path, auth_token=token)
     else:
         conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
